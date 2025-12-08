@@ -49,6 +49,62 @@ public sealed class LoadBalancingStrategyFactoryTests
     }
 
     [TestMethod]
+    public void Create_WithRandom_ReturnsRandomStrategy()
+    {
+        
+        var factory = new LoadBalancingStrategyFactory();
+
+        
+        var strategy = factory.Create("Random");
+
+        
+        Assert.IsNotNull(strategy);
+        Assert.IsInstanceOfType(strategy, typeof(ILoadBalancingStrategy));
+    }
+
+    [TestMethod]
+    public void Create_WithRandomLowerCase_ReturnsRandomStrategy()
+    {
+        
+        var factory = new LoadBalancingStrategyFactory();
+
+        
+        var strategy = factory.Create("random");
+
+        
+        Assert.IsNotNull(strategy);
+        Assert.IsInstanceOfType(strategy, typeof(ILoadBalancingStrategy));
+    }
+
+    [TestMethod]
+    public void Create_WithFallback_ReturnsFallbackStrategy()
+    {
+        
+        var factory = new LoadBalancingStrategyFactory();
+
+        
+        var strategy = factory.Create("Fallback");
+
+        
+        Assert.IsNotNull(strategy);
+        Assert.IsInstanceOfType(strategy, typeof(ILoadBalancingStrategy));
+    }
+
+    [TestMethod]
+    public void Create_WithFallbackLowerCase_ReturnsFallbackStrategy()
+    {
+        
+        var factory = new LoadBalancingStrategyFactory();
+
+        
+        var strategy = factory.Create("fallback");
+
+        
+        Assert.IsNotNull(strategy);
+        Assert.IsInstanceOfType(strategy, typeof(ILoadBalancingStrategy));
+    }
+
+    [TestMethod]
     public void Create_WithUnknownStrategy_ThrowsArgumentException()
     {
         

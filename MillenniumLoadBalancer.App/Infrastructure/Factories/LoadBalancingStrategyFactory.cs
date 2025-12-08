@@ -15,7 +15,9 @@ internal class LoadBalancingStrategyFactory : ILoadBalancingStrategyFactory
         return strategyName.ToLowerInvariant() switch
         {
             "roundrobin" or "round-robin" => new RoundRobinStrategy(),
-            _ => throw new ArgumentException($"Unknown load balancing strategy: {strategyName}. Supported strategies: RoundRobin", nameof(strategyName))
+            "random" => new RandomStrategy(),
+            "fallback" => new FallbackStrategy(),
+            _ => throw new ArgumentException($"Unknown load balancing strategy: {strategyName}. Supported strategies: RoundRobin, Random, Fallback", nameof(strategyName))
         };
     }
 }

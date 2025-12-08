@@ -7,7 +7,9 @@ A high-performance, production-ready TCP load balancer built with .NET 10.0. Mil
 - **TCP Load Balancing**: Distribute TCP connections across multiple backend servers
 - **Health Checking**: Automatic health monitoring with configurable intervals and recovery delays
 - **Load Balancing Strategies**: 
-  - Round Robin (default)
+  - Round Robin (default) - Distributes connections evenly across backends
+  - Random - Randomly selects from healthy backends
+  - Fallback - Always uses the first healthy backend, moves to next when current fails
   - Extensible architecture for custom strategies
 - **Automatic Failover**: Unhealthy backends are automatically removed from rotation and re-added when recovered
 - **Multiple Listeners**: Configure multiple load balancer instances with different configurations
@@ -122,7 +124,7 @@ Configuration is done via `appsettings.json`. Here's an example configuration:
 
 - **Name**: Friendly name for the load balancer instance
 - **Protocol**: Currently supports "TCP"
-- **Strategy**: Load balancing strategy ("RoundRobin" or custom)
+- **Strategy**: Load balancing strategy ("RoundRobin", "Random", "Fallback", or custom)
 - **ListenAddress**: IP address to bind to (use "0.0.0.0" for all interfaces)
 - **ListenPort**: Port number to listen on
 - **RecoveryCheckIntervalSeconds**: How often to check if unhealthy backends have recovered (default: 10)
@@ -266,7 +268,27 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 
 ## License
 
-[Add your license here]
+MIT License
+
+Copyright (c) 2025 Bradley Sewell
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ## Support
 
