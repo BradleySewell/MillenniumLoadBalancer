@@ -32,16 +32,7 @@ internal class TcpConnectionForwarder : IConnectionForwarder
         {
             await backendClient.ConnectAsync(backend.Address, backend.Port, connectionCts.Token);
         }
-        catch (OperationCanceledException)
-        {
-            // If the original cancellation token was cancelled, rethrow
-            // Otherwise, this is a connection timeout, return false
-            if (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            return false;
-        }
+
         catch
         {
             return false;
@@ -52,9 +43,8 @@ internal class TcpConnectionForwarder : IConnectionForwarder
         {
             backendStream = backendClient.GetStream();
         }
-        catch (Exception)
+        catch
         {
-            // Failed to get stream - possible connection issue, return false
             return false;
         }
         
@@ -73,33 +63,27 @@ internal class TcpConnectionForwarder : IConnectionForwarder
 
                 var completedTask = await Task.WhenAny(forwardTask, reverseTask);
                 
-                // Check if the completed task threw an exception
-                if (completedTask.IsFaulted)
-                {
-                    try
-                    {
-                        await completedTask; // This throws an exception if there is one
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        throw;
-                    }
-                }
-                
-                // Check for cancellation
-                cancellationToken.ThrowIfCancellationRequested();
-                
-                operationCts.Cancel();
-                
                 try
                 {
-                    await Task.WhenAll(forwardTask, reverseTask);
+                    await completedTask;
                 }
                 catch (OperationCanceledException)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     throw;
+                }
+                
+                cancellationToken.ThrowIfCancellationRequested();
+                
+                var otherTask = completedTask == forwardTask ? reverseTask : forwardTask;
+                
+                try
+                {
+                    await otherTask;
+                }
+                catch (OperationCanceledException)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
                 }
                 catch
                 {
