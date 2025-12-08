@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/MillenniumLoadBalancer.IntegrationTests/MillenniumLoadBalancer.IntegrationTests/MillenniumLoadBalancer.IntegrationTests.csproj" Id="d96e19db-a171-4f98-ad06-a8fdcd90bd4f" />
+    <Project Path="Tests/MillenniumLoadBalancer.TestApp/MillenniumLoadBalancer.TestApp/MillenniumLoadBalancer.TestApp.csproj" Id="1131d0df-fda1-41f1-83e8-5bd2a45acadc" />
+    <Project Path="Tests/MillenniumLoadBalancer.UnitTests/MillenniumLoadBalancer.UnitTests/MillenniumLoadBalancer.UnitTests.csproj" Id="5003f99d-f2d7-4c81-9612-f665a9f5f5bf" />
+  </Folder>
+  <Project Path="MillenniumLoadBalancer.App/MillenniumLoadBalancer.App.csproj" />
+</Solution>

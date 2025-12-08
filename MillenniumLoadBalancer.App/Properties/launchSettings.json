@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "MillenniumLoadBalancer": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}

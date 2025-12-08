@@ -1,0 +1,21 @@
+using MillenniumLoadBalancer.App.Core;
+using MillenniumLoadBalancer.App.Core.Interfaces;
+
+namespace MillenniumLoadBalancer.App.Infrastructure.Factories;
+
+internal class LoadBalancingStrategyFactory : ILoadBalancingStrategyFactory
+{
+    public ILoadBalancingStrategy Create(string strategyName)
+    {
+        if (string.IsNullOrWhiteSpace(strategyName))
+        {
+            throw new ArgumentException("Strategy name cannot be null or empty", nameof(strategyName));
+        }
+
+        return strategyName.ToLowerInvariant() switch
+        {
+            "roundrobin" or "round-robin" => new RoundRobinStrategy(),
+            _ => throw new ArgumentException($"Unknown load balancing strategy: {strategyName}. Supported strategies: RoundRobin", nameof(strategyName))
+        };
+    }
+}
