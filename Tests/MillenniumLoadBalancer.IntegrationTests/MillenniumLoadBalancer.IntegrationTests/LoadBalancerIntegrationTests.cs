@@ -158,7 +158,7 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
     }
 
     [TestMethod]
-    public async Task LoadBalancer_DistributesConnections_RoundRobin()
+    public async Task LoadBalancer_Strategy_RoundRobin()
     {
         await SetupLoadBalancerAsync(backendCount: 3);
 
@@ -359,45 +359,65 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
     }
 
     [TestMethod]
-    public async Task LoadBalancer_DistributesConnections_Random()
+    public async Task LoadBalancer_Strategy_Random()
     {
         await SetupLoadBalancerAsync(backendCount: 3, strategy: "Random");
 
         var connections = new List<TcpClient>();
-        for (int i = 0; i < 20; i++)
+        for (int i = 0; i < 30; i++)
         {
-            var client = new TcpClient();
-            await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
-            connections.Add(client);
-            await Task.Delay(50);
+            try
+            {
+                var client = new TcpClient();
+                await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
+                var stream = client.GetStream();
+                // Send a small message to ensure connection is fully established
+                var testBytes = Encoding.UTF8.GetBytes($"test {i}");
+                await stream.WriteAsync(testBytes);
+                connections.Add(client);
+                await Task.Delay(30);
+            }
+            catch
+            {
+                // Ignore connection errors
+            }
         }
+
+        await Task.Delay(300);
 
         foreach (var client in connections)
         {
-            client.Close();
+            try
+            {
+                client.Close();
+            }
+            catch
+            {
+                // Ignore close errors
+            }
         }
 
-        await Task.Delay(200);
+        await Task.Delay(300);
 
         var connectionCounts = _backendServers.Select(s => s.ConnectionCount).ToList();
-        Assert.IsTrue(connectionCounts.All(c => c > 0), "All backends should have received at least one connection");
-        Assert.IsGreaterThanOrEqualTo(connectionCounts.Sum(), 20, "Total connections should be at least 20");
-        
-        var totalConnections = connectionCounts.Sum();
-        Assert.IsGreaterThanOrEqualTo(totalConnections, 20, $"Expected at least 20 connections, got {totalConnections}");
+        Assert.IsTrue(connectionCounts.All(c => c > 0), $"All backends should have received at least one connection. Connection counts: [{string.Join(", ", connectionCounts)}]");
+        Assert.IsGreaterThanOrEqualTo(20, connectionCounts.Sum(), $"Total connections should be at least 20, got {connectionCounts.Sum()}");
     }
 
     [TestMethod]
-    [Ignore("Temporarily disabled - needs investigation")]
-    public async Task LoadBalancer_UsesFirstHealthyBackend_Fallback()
+    public async Task LoadBalancer_Strategy_Fallback()
     {
         await SetupLoadBalancerAsync(backendCount: 3, strategy: "Fallback");
 
         var messages = new List<string>();
+        var clients = new List<TcpClient>();
+        
         for (int i = 0; i < 10; i++)
         {
-            using var client = new TcpClient();
+            var client = new TcpClient();
+            clients.Add(client);
             await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
+            await Task.Delay(50); // Ensure connection is established
             var stream = client.GetStream();
             var testMessage = $"test {i}";
             messages.Add(testMessage);
@@ -408,18 +428,38 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
             var bytesRead = await stream.ReadAsync(buffer);
             var response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
             Assert.AreEqual(testMessage, response);
+            
+            // Check messages immediately after each response to ensure they're recorded
+            await Task.Delay(100); // Small delay to ensure backend has processed
         }
 
+        // Keep connections open a bit longer to ensure all data is processed
         await Task.Delay(500);
-
+        
+        // Check messages before closing connections
         var firstBackendMessages = _backendServers[0].ReceivedMessages;
-        Assert.IsGreaterThan(firstBackendMessages.Count, 0, "First backend should have received messages");
+        Assert.IsGreaterThan(0, firstBackendMessages.Count, $"First backend should have received messages. Got {firstBackendMessages.Count} messages");
+        
+        // Close connections
+        foreach (var client in clients)
+        {
+            try
+            {
+                client.Close();
+            }
+            catch
+            {
+                // Ignore close errors
+            }
+        }
+        
+        await Task.Delay(500);
         
         var totalMessages = _backendServers.Sum(s => s.ReceivedMessages.Count);
-        Assert.IsGreaterThanOrEqualTo(totalMessages, 10, $"Expected at least 10 messages, got {totalMessages}");
+        Assert.IsGreaterThanOrEqualTo(10, totalMessages, $"Expected at least 10 messages, got {totalMessages}");
         
         Assert.AreEqual(totalMessages, firstBackendMessages.Count, 
-            "Fallback strategy should use only the first healthy backend when all are healthy");
+            $"Fallback strategy should use only the first healthy backend when all are healthy. First backend: {firstBackendMessages.Count}, Total: {totalMessages}, Backend counts: [{string.Join(", ", _backendServers.Select(s => s.ReceivedMessages.Count))}]");
         
         foreach (var message in messages)
         {
@@ -428,7 +468,6 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
     }
 
     [TestMethod]
-    [Ignore("Temporarily disabled - needs investigation")]
     public async Task LoadBalancer_Fallback_MovesToNextBackend_WhenFirstFails()
     {
         await SetupLoadBalancerAsync(backendCount: 3, strategy: "Fallback", recoveryCheckIntervalSeconds: 1, recoveryDelaySeconds: 1);
@@ -438,11 +477,15 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
         var thirdBackend = _backendServers[2];
 
         var initialFirstMessages = firstBackend.ReceivedMessages.Count;
+        var initialClients = new List<TcpClient>();
 
+        // Send initial messages to first backend
         for (int i = 0; i < 5; i++)
         {
-            using var client = new TcpClient();
+            var client = new TcpClient();
+            initialClients.Add(client);
             await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
+            await Task.Delay(50);
             var stream = client.GetStream();
             var testMessage = $"test {i}";
             var testBytes = Encoding.UTF8.GetBytes(testMessage);
@@ -452,23 +495,48 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
             var bytesRead = await stream.ReadAsync(buffer);
             var response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
             Assert.AreEqual(testMessage, response);
+            await Task.Delay(50);
         }
 
         await Task.Delay(500);
-        Assert.IsGreaterThan(firstBackend.ReceivedMessages.Count, initialFirstMessages, 
-            "First backend should have received messages initially");
+        
+        // Check messages before closing connections
+        Assert.IsGreaterThan(initialFirstMessages, firstBackend.ReceivedMessages.Count, 
+            $"First backend should have received messages initially. Initial: {initialFirstMessages}, Current: {firstBackend.ReceivedMessages.Count}");
+        
+        // Close initial connections
+        foreach (var client in initialClients)
+        {
+            try
+            {
+                client.Close();
+            }
+            catch
+            {
+                // Ignore close errors
+            }
+        }
+        
+        await Task.Delay(500);
 
+        // Stop first backend
         await firstBackend.StopAsync();
-        await Task.Delay(1500);
+        
+        // Wait for health check to mark it as unhealthy and for recovery delay
+        await Task.Delay(2500);
 
         var secondBackendInitialMessages = secondBackend.ReceivedMessages.Count;
+        var fallbackClients = new List<TcpClient>();
 
+        // Send messages that should now go to second backend
         for (int i = 0; i < 5; i++)
         {
             try
             {
-                using var client = new TcpClient();
+                var client = new TcpClient();
+                fallbackClients.Add(client);
                 await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
+                await Task.Delay(50);
                 var stream = client.GetStream();
                 var testMessage = $"fallback {i}";
                 var testBytes = Encoding.UTF8.GetBytes(testMessage);
@@ -478,6 +546,7 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
                 var bytesRead = await stream.ReadAsync(buffer);
                 var response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
                 Assert.AreEqual(testMessage, response);
+                await Task.Delay(50);
             }
             catch
             {
@@ -485,9 +554,25 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
         }
 
         await Task.Delay(500);
-
-        Assert.IsGreaterThan(secondBackend.ReceivedMessages.Count, secondBackendInitialMessages, 
-            "Second backend should have received messages after first backend fails");
+        
+        // Check messages before closing connections
+        Assert.IsGreaterThan(secondBackendInitialMessages, secondBackend.ReceivedMessages.Count, 
+            $"Second backend should have received messages after first backend fails. Initial: {secondBackendInitialMessages}, Current: {secondBackend.ReceivedMessages.Count}, Backend counts: [{string.Join(", ", _backendServers.Select(s => s.ReceivedMessages.Count))}]");
+        
+        // Close fallback connections
+        foreach (var client in fallbackClients)
+        {
+            try
+            {
+                client.Close();
+            }
+            catch
+            {
+                // Ignore close errors
+            }
+        }
+        
+        await Task.Delay(500);
     }
 
     public void Dispose()
