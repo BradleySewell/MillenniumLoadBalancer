@@ -70,7 +70,40 @@ public static class ServiceConfiguration
         }
         else
         {
-            return "/var/log/millenniumloadbalancer";
+            var systemLogDir = "/var/log/millenniumloadbalancer";
+            
+            try
+            {
+                if (!Directory.Exists(systemLogDir))
+                {
+                    Directory.CreateDirectory(systemLogDir);
+                }
+                
+                // Test write 
+                var testFile = Path.Combine(systemLogDir, ".write-test");
+                try
+                {
+                    File.WriteAllText(testFile, "");
+                    File.Delete(testFile);
+                    return systemLogDir;
+                }
+                catch
+                {
+                }
+            }
+            catch
+            {
+            }
+            
+            // Fallback to temp dir
+            var tempDir = Path.GetTempPath();
+            if (!string.IsNullOrEmpty(tempDir) && Directory.Exists(tempDir))
+            {
+                return Path.Combine(tempDir, "millenniumloadbalancer", "logs");
+            }
+            
+            // Last resort: use current directory
+            return Path.Combine(Directory.GetCurrentDirectory(), "logs");
         }
     }
 

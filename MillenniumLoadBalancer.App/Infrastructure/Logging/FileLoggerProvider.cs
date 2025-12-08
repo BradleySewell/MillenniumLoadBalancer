@@ -18,7 +18,16 @@ internal class FileLoggerProvider : ILoggerProvider
         var directory = Path.GetDirectoryName(_logFilePath);
         if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
         {
-            Directory.CreateDirectory(directory);
+            try
+            {
+                Directory.CreateDirectory(directory);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+            }
+            catch
+            {
+            }
         }
     }
 
