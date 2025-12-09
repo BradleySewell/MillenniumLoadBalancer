@@ -71,7 +71,7 @@ internal class LoadBalancerFactory : ILoadBalancerFactory
                     throw new ArgumentException($"Invalid backend address: {b.Address}. Must be a valid IP address", nameof(configuration));
                 if (b.Port <= 0 || b.Port > 65535)
                     throw new ArgumentException($"Invalid backend port: {b.Port}. Port must be between 1 and 65535", nameof(configuration));
-                return _backendServiceFactory.Create(b.Address, b.Port);
+                return _backendServiceFactory.Create(b.Address, b.Port, b.EnableTls, b.ValidateCertificate);
             })
             .ToList();
 

@@ -13,7 +13,7 @@ public sealed class BackendServiceFactoryTests
         var factory = new BackendServiceFactory();
 
         
-        var backend = factory.Create("127.0.0.1", 8080);
+        var backend = factory.Create("127.0.0.1", 8080, enableTls: false, validateCertificate: true);
 
         
         Assert.IsNotNull(backend);
@@ -29,8 +29,8 @@ public sealed class BackendServiceFactoryTests
         var factory = new BackendServiceFactory();
 
         
-        var backend1 = factory.Create("127.0.0.1", 8080);
-        var backend2 = factory.Create("127.0.0.1", 8080);
+        var backend1 = factory.Create("127.0.0.1", 8080, enableTls: false, validateCertificate: true);
+        var backend2 = factory.Create("127.0.0.1", 8080, enableTls: false, validateCertificate: true);
 
         
         Assert.AreNotSame(backend1, backend2);
@@ -43,8 +43,8 @@ public sealed class BackendServiceFactoryTests
         var factory = new BackendServiceFactory();
 
         
-        var backend1 = factory.Create("127.0.0.1", 8080);
-        var backend2 = factory.Create("192.168.1.1", 8080);
+        var backend1 = factory.Create("127.0.0.1", 8080, enableTls: false, validateCertificate: true);
+        var backend2 = factory.Create("192.168.1.1", 8080, enableTls: false, validateCertificate: true);
 
         
         Assert.AreNotEqual(backend1.Address, backend2.Address);
@@ -57,10 +57,38 @@ public sealed class BackendServiceFactoryTests
         var factory = new BackendServiceFactory();
 
         
-        var backend1 = factory.Create("127.0.0.1", 8080);
-        var backend2 = factory.Create("127.0.0.1", 8081);
+        var backend1 = factory.Create("127.0.0.1", 8080, enableTls: false, validateCertificate: true);
+        var backend2 = factory.Create("127.0.0.1", 8081, enableTls: false, validateCertificate: true);
 
         
         Assert.AreNotEqual(backend1.Port, backend2.Port);
+    }
+
+    [TestMethod]
+    public void Create_WithTlsEnabled_SetsTlsProperties()
+    {
+        
+        var factory = new BackendServiceFactory();
+
+        
+        var backend = factory.Create("127.0.0.1", 8080, enableTls: true, validateCertificate: false);
+
+        
+        Assert.IsTrue(backend.EnableTls);
+        Assert.IsFalse(backend.ValidateCertificate);
+    }
+
+    [TestMethod]
+    public void Create_DefaultTlsSettings_AreCorrect()
+    {
+        
+        var factory = new BackendServiceFactory();
+
+        
+        var backend = factory.Create("127.0.0.1", 8080, enableTls: false, validateCertificate: true);
+
+        
+        Assert.IsFalse(backend.EnableTls);
+        Assert.IsTrue(backend.ValidateCertificate);
     }
 }

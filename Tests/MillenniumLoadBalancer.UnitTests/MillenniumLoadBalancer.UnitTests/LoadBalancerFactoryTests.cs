@@ -286,7 +286,7 @@ public sealed class LoadBalancerFactoryTests
 
         
         _backendServiceFactoryMock.Verify(
-            f => f.Create(It.IsAny<string>(), It.IsAny<int>()),
+            f => f.Create(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>()),
             Times.Exactly(3));
     }
 
@@ -319,7 +319,7 @@ public sealed class LoadBalancerFactoryTests
         _forwarderFactoryMock.Setup(f => f.Create(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
             .Returns(new Mock<IConnectionForwarder>().Object);
 
-        _backendServiceFactoryMock.Setup(f => f.Create(It.IsAny<string>(), It.IsAny<int>()))
-            .Returns((string addr, int port) => new Mock<IBackendService>().Object);
+        _backendServiceFactoryMock.Setup(f => f.Create(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>()))
+            .Returns((string addr, int port, bool enableTls, bool validateCertificate) => new Mock<IBackendService>().Object);
     }
 }

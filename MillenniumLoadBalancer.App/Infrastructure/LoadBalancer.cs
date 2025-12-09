@@ -159,13 +159,14 @@ internal class LoadBalancer : ILoadBalancer, IDisposable
     {
         try
         {
+            // Run first health check immediately before entering the delay loop
             while (!cancellationToken.IsCancellationRequested)
             {
                 var now = DateTime.UtcNow;
                 var unhealthyBackends = _backends
                     .Where(b => !b.IsHealthy && 
-                                b.LastFailure.HasValue && 
-                                (now - b.LastFailure.Value).TotalSeconds >= _recoveryDelaySeconds)
+                                (!b.LastFailure.HasValue || 
+                                 (now - b.LastFailure.Value).TotalSeconds >= _recoveryDelaySeconds))
                     .ToList();
                 
                 foreach (var backend in unhealthyBackends)
@@ -177,12 +178,24 @@ internal class LoadBalancer : ILoadBalancer, IDisposable
 
                     try
                     {
+                        var isFirstCheck = !backend.LastFailure.HasValue;
                         var isHealthy = await _healthCheckService.CheckHealthAsync(backend, HealthCheckTimeoutSeconds, cancellationToken);
                         
                         if (isHealthy)
                         {
                             backend.MarkHealthy();
-                            _logger.LogInformation($"Load balancer '{_name}': Backend {backend.Address}:{backend.Port} recovered and is now healthy");
+                            if (isFirstCheck)
+                            {
+                                _logger.LogInformation($"Load balancer '{_name}': Backend {backend.Address}:{backend.Port} is healthy");
+                            }
+                            else
+                            {
+                                _logger.LogInformation($"Load balancer '{_name}': Backend {backend.Address}:{backend.Port} recovered and is now healthy");
+                            }
+                        }
+                        else
+                        {
+                            backend.MarkUnhealthy();
                         }
                     }
                     catch (Exception ex)

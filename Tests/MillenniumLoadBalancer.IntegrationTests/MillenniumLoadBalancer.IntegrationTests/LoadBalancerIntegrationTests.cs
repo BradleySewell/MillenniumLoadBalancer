@@ -6,6 +6,7 @@ using MillenniumLoadBalancer.App.Core.Interfaces;
 using MillenniumLoadBalancer.App.Infrastructure;
 using MillenniumLoadBalancer.IntegrationTests.Helpers;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
 
@@ -17,6 +18,7 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
     private IServiceProvider? _serviceProvider;
     private ILoadBalancerManager? _loadBalancerManager;
     private readonly List<MockBackendServer> _backendServers = new();
+    private readonly List<MockTlsBackendServer> _tlsBackendServers = new();
     private int _loadBalancerPort;
     private const string LoadBalancerAddress = "127.0.0.1";
 
@@ -50,20 +52,46 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
         }
         _backendServers.Clear();
 
+        foreach (var server in _tlsBackendServers)
+        {
+            server.Dispose();
+        }
+        _tlsBackendServers.Clear();
+
         if (_serviceProvider is IDisposable disposable)
         {
             disposable.Dispose();
         }
     }
 
-    private IConfiguration CreateConfiguration(List<MockBackendServer> backends, string strategy = "RoundRobin", int recoveryCheckIntervalSeconds = 1, int recoveryDelaySeconds = 2)
+    private IConfiguration CreateConfiguration(List<MockBackendServer> backends, string strategy = "RoundRobin", int recoveryCheckIntervalSeconds = 1, int recoveryDelaySeconds = 2, bool enableTls = false, bool validateCertificate = false)
     {
         var backendConfigs = backends.Select(b => new BackendConfiguration
         {
             Address = b.Address,
-            Port = b.Port
+            Port = b.Port,
+            EnableTls = enableTls,
+            ValidateCertificate = validateCertificate
         }).ToList();
 
+        return CreateConfigurationFromBackendConfigs(backendConfigs, strategy, recoveryCheckIntervalSeconds, recoveryDelaySeconds);
+    }
+
+    private IConfiguration CreateConfigurationFromTlsBackends(List<MockTlsBackendServer> tlsBackends, string strategy = "RoundRobin", int recoveryCheckIntervalSeconds = 1, int recoveryDelaySeconds = 2)
+    {
+        var backendConfigs = tlsBackends.Select(b => new BackendConfiguration
+        {
+            Address = b.Address,
+            Port = b.Port,
+            EnableTls = true,
+            ValidateCertificate = false // Accept self-signed certs in tests
+        }).ToList();
+
+        return CreateConfigurationFromBackendConfigs(backendConfigs, strategy, recoveryCheckIntervalSeconds, recoveryDelaySeconds);
+    }
+
+    private IConfiguration CreateConfigurationFromBackendConfigs(List<BackendConfiguration> backendConfigs, string strategy, int recoveryCheckIntervalSeconds, int recoveryDelaySeconds)
+    {
         var listenerConfig = new ListenerConfiguration
         {
             Name = "TestLoadBalancer",
@@ -102,6 +130,8 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
         {
             configDict[$"LoadBalancer:Listeners:0:Backends:{i}:Address"] = backendConfigs[i].Address;
             configDict[$"LoadBalancer:Listeners:0:Backends:{i}:Port"] = backendConfigs[i].Port;
+            configDict[$"LoadBalancer:Listeners:0:Backends:{i}:EnableTls"] = backendConfigs[i].EnableTls.ToString();
+            configDict[$"LoadBalancer:Listeners:0:Backends:{i}:ValidateCertificate"] = backendConfigs[i].ValidateCertificate.ToString();
         }
 
         var configuration = new ConfigurationBuilder()
@@ -133,42 +163,53 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
         await Task.Delay(500);
     }
 
-    [TestMethod]
-    public async Task LoadBalancer_ForwardsConnections_ToBackends()
+    private async Task SetupTlsLoadBalancerAsync(int backendCount, string strategy = "RoundRobin", int recoveryCheckIntervalSeconds = 1, int recoveryDelaySeconds = 2)
     {
-        await SetupLoadBalancerAsync(backendCount: 2);
+        for (int i = 0; i < backendCount; i++)
+        {
+            var server = new MockTlsBackendServer();
+            await server.StartAsync();
+            _tlsBackendServers.Add(server);
+        }
 
-        using var client = new TcpClient();
-        await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
-        var stream = client.GetStream();
+        var configuration = CreateConfigurationFromTlsBackends(_tlsBackendServers, strategy, recoveryCheckIntervalSeconds, recoveryDelaySeconds);
 
-        var testMessage = "Hello, Backend!";
-        var messageBytes = Encoding.UTF8.GetBytes(testMessage);
-        await stream.WriteAsync(messageBytes);
+        _serviceProvider = ServiceConfiguration.ConfigureServices(configuration);
 
-        var buffer = new byte[4096];
-        var bytesRead = await stream.ReadAsync(buffer);
-        var response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+        var loggingBuilder = _serviceProvider.GetRequiredService<ILoggerFactory>();
 
-        Assert.AreEqual(testMessage, response);
-        Assert.IsTrue(_backendServers.Any(s => s.ConnectionCount > 0), "At least one backend should have received a connection");
-        
-        var backendThatReceivedMessage = _backendServers.FirstOrDefault(s => s.ReceivedMessages.Contains(testMessage));
-        Assert.IsNotNull(backendThatReceivedMessage, $"Expected at least one backend to have received the message '{testMessage}'");
+        _loadBalancerManager = _serviceProvider.GetRequiredService<ILoadBalancerManager>();
+        _loadBalancerManager.Initialize();
+        await _loadBalancerManager.StartAllAsync();
+
+        await Task.Delay(1000); // Wait for TLS health checks
     }
 
+
     [TestMethod]
-    public async Task LoadBalancer_Strategy_RoundRobin()
+    public async Task LoadBalancer_Strategy_RoundRobin_DistributesConnectionsEvenly()
     {
         await SetupLoadBalancerAsync(backendCount: 3);
 
+        var messages = new List<string>();
         var connections = new List<TcpClient>();
         for (int i = 0; i < 6; i++)
         {
             var client = new TcpClient();
             await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
+            await Task.Delay(50);
+            var stream = client.GetStream();
+            var testMessage = $"RoundRobin message {i}";
+            messages.Add(testMessage);
+            var testBytes = Encoding.UTF8.GetBytes(testMessage);
+            await stream.WriteAsync(testBytes);
+            
+            var buffer = new byte[4096];
+            var bytesRead = await stream.ReadAsync(buffer);
+            var response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+            Assert.AreEqual(testMessage, response, $"Response should match sent message for connection {i}");
+            
             connections.Add(client);
-            await Task.Delay(50); 
         }
 
         foreach (var client in connections)
@@ -180,19 +221,87 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
 
         var connectionCounts = _backendServers.Select(s => s.ConnectionCount).ToList();
         Assert.IsTrue(connectionCounts.All(c => c > 0), "All backends should have received at least one connection");
-        Assert.IsGreaterThanOrEqualTo(connectionCounts.Sum(), 6, "Total connections should be at least 6");
+        Assert.IsGreaterThanOrEqualTo(6, connectionCounts.Sum(), "Total connections should be at least 6");
         
         var maxConnections = connectionCounts.Max();
         var minConnections = connectionCounts.Min();
         var difference = maxConnections - minConnections;
         Assert.IsLessThanOrEqualTo(1, difference, 
             $"Connections should be distributed evenly. Max: {maxConnections}, Min: {minConnections}, Difference: {difference}");
+        
+        // Verify all messages were received by backends
+        var allReceivedMessages = _backendServers.SelectMany(s => s.ReceivedMessages).ToList();
+        foreach (var message in messages)
+        {
+            Assert.Contains(message, allReceivedMessages, $"Message '{message}' should have been received by a backend");
+        }
     }
 
     [TestMethod]
-    public async Task LoadBalancer_ForwardsData_Bidirectionally()
+    public async Task LoadBalancer_Strategy_RoundRobin_Ssl_DistributesConnectionsEvenly()
     {
-        await SetupLoadBalancerAsync(backendCount: 1);
+        await SetupTlsLoadBalancerAsync(backendCount: 3, strategy: "RoundRobin");
+
+        var messages = new List<string>();
+        var connections = new List<(TcpClient client, SslStream sslStream)>();
+        for (int i = 0; i < 6; i++)
+        {
+            var client = new TcpClient();
+            await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
+            var stream = client.GetStream();
+            var sslStream = new SslStream(stream, false, (sender, certificate, chain, sslPolicyErrors) => true, null);
+            await sslStream.AuthenticateAsClientAsync("127.0.0.1");
+            var testMessage = $"RoundRobin TLS message {i}";
+            messages.Add(testMessage);
+            var testBytes = Encoding.UTF8.GetBytes(testMessage);
+            await sslStream.WriteAsync(testBytes);
+            
+            var buffer = new byte[4096];
+            var bytesRead = await sslStream.ReadAsync(buffer);
+            var response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+            Assert.AreEqual(testMessage, response, $"Response should match sent message for TLS connection {i}");
+            
+            connections.Add((client, sslStream));
+            await Task.Delay(50);
+        }
+
+        foreach (var (client, sslStream) in connections)
+        {
+            try
+            {
+                sslStream.Dispose();
+                client.Close();
+            }
+            catch
+            {
+                // Ignore close errors
+            }
+        }
+
+        await Task.Delay(200);
+
+        var connectionCounts = _tlsBackendServers.Select(s => s.ConnectionCount).ToList();
+        Assert.IsTrue(connectionCounts.All(c => c > 0), "All TLS backends should have received at least one connection");
+        Assert.IsGreaterThanOrEqualTo(6, connectionCounts.Sum(), "Total connections should be at least 6");
+        
+        var maxConnections = connectionCounts.Max();
+        var minConnections = connectionCounts.Min();
+        var difference = maxConnections - minConnections;
+        Assert.IsLessThanOrEqualTo(1, difference, 
+            $"Connections should be distributed evenly. Max: {maxConnections}, Min: {minConnections}, Difference: {difference}");
+        
+        // Verify all messages were received by backends
+        var allReceivedMessages = _tlsBackendServers.SelectMany(s => s.ReceivedMessages).ToList();
+        foreach (var message in messages)
+        {
+            Assert.Contains(message, allReceivedMessages, $"Message '{message}' should have been received by a TLS backend");
+        }
+    }
+
+    [TestMethod]
+    public async Task LoadBalancer_ForwardsData_Bidirectionally_WithRoundRobinStrategy()
+    {
+        await SetupLoadBalancerAsync(backendCount: 1, strategy: "RoundRobin");
 
         using var client = new TcpClient();
         await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
@@ -235,9 +344,9 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
     }
 
     [TestMethod]
-    public async Task LoadBalancer_MarksBackendUnhealthy_WhenConnectionFails()
+    public async Task LoadBalancer_MarksBackendUnhealthy_WhenConnectionFails_WithRoundRobinStrategy()
     {
-        await SetupLoadBalancerAsync(backendCount: 2, recoveryCheckIntervalSeconds: 1, recoveryDelaySeconds: 1);
+        await SetupLoadBalancerAsync(backendCount: 2, strategy: "RoundRobin", recoveryCheckIntervalSeconds: 1, recoveryDelaySeconds: 1);
 
         var stoppedServer = _backendServers[0];
         await stoppedServer.StopAsync();
@@ -269,9 +378,9 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
     }
 
     [TestMethod]
-    public async Task LoadBalancer_RecoversBackend_WhenItBecomesHealthy()
+    public async Task LoadBalancer_RecoversBackend_WhenItBecomesHealthy_WithRoundRobinStrategy()
     {
-        await SetupLoadBalancerAsync(backendCount: 2, recoveryCheckIntervalSeconds: 1, recoveryDelaySeconds: 1);
+        await SetupLoadBalancerAsync(backendCount: 2, strategy: "RoundRobin", recoveryCheckIntervalSeconds: 1, recoveryDelaySeconds: 1);
 
         var backendToTest = _backendServers[0];
         var otherBackend = _backendServers[1];
@@ -312,9 +421,9 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
     }
 
     [TestMethod]
-    public async Task LoadBalancer_HandlesMultipleConcurrentConnections()
+    public async Task LoadBalancer_HandlesMultipleConcurrentConnections_WithRoundRobinStrategy()
     {
-        await SetupLoadBalancerAsync(backendCount: 2);
+        await SetupLoadBalancerAsync(backendCount: 2, strategy: "RoundRobin");
 
         var tasks = new List<Task>();
         for (int i = 0; i < 10; i++)
@@ -348,7 +457,7 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
         await Task.WhenAll(tasks);
 
         var totalConnections = _backendServers.Sum(s => s.ConnectionCount);
-        Assert.IsGreaterThanOrEqualTo(totalConnections, 10, $"Expected at least 10 connections, got {totalConnections}");
+        Assert.IsGreaterThanOrEqualTo(10, totalConnections, $"Expected at least 10 connections, got {totalConnections}");
         
         var allReceivedMessages = _backendServers.SelectMany(s => s.ReceivedMessages).ToList();
         for (int i = 0; i < 10; i++)
@@ -359,10 +468,11 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
     }
 
     [TestMethod]
-    public async Task LoadBalancer_Strategy_Random()
+    public async Task LoadBalancer_Strategy_Random_DistributesConnectionsAcrossAllBackends()
     {
         await SetupLoadBalancerAsync(backendCount: 3, strategy: "Random");
 
+        var messages = new List<string>();
         var connections = new List<TcpClient>();
         for (int i = 0; i < 30; i++)
         {
@@ -371,9 +481,16 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
                 var client = new TcpClient();
                 await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
                 var stream = client.GetStream();
-                // Send a small message to ensure connection is fully established
-                var testBytes = Encoding.UTF8.GetBytes($"test {i}");
+                var testMessage = $"Random message {i}";
+                messages.Add(testMessage);
+                var testBytes = Encoding.UTF8.GetBytes(testMessage);
                 await stream.WriteAsync(testBytes);
+                
+                var buffer = new byte[4096];
+                var bytesRead = await stream.ReadAsync(buffer);
+                var response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                Assert.AreEqual(testMessage, response, $"Response should match sent message for connection {i}");
+                
                 connections.Add(client);
                 await Task.Delay(30);
             }
@@ -402,10 +519,81 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
         var connectionCounts = _backendServers.Select(s => s.ConnectionCount).ToList();
         Assert.IsTrue(connectionCounts.All(c => c > 0), $"All backends should have received at least one connection. Connection counts: [{string.Join(", ", connectionCounts)}]");
         Assert.IsGreaterThanOrEqualTo(20, connectionCounts.Sum(), $"Total connections should be at least 20, got {connectionCounts.Sum()}");
+        
+        // Verify all messages were received by backends
+        var allReceivedMessages = _backendServers.SelectMany(s => s.ReceivedMessages).ToList();
+        foreach (var message in messages)
+        {
+            Assert.Contains(message, allReceivedMessages, $"Message '{message}' should have been received by a backend");
+        }
     }
 
     [TestMethod]
-    public async Task LoadBalancer_Strategy_Fallback()
+    public async Task LoadBalancer_Strategy_Random_Ssl_DistributesConnectionsAcrossAllBackends()
+    {
+        await SetupTlsLoadBalancerAsync(backendCount: 3, strategy: "Random");
+
+        var messages = new List<string>();
+        var connections = new List<(TcpClient client, SslStream sslStream)>();
+        for (int i = 0; i < 30; i++)
+        {
+            try
+            {
+                var client = new TcpClient();
+                await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
+                var stream = client.GetStream();
+                var sslStream = new SslStream(stream, false, (sender, certificate, chain, sslPolicyErrors) => true, null);
+                await sslStream.AuthenticateAsClientAsync("127.0.0.1");
+                var testMessage = $"Random TLS message {i}";
+                messages.Add(testMessage);
+                var testBytes = Encoding.UTF8.GetBytes(testMessage);
+                await sslStream.WriteAsync(testBytes);
+                
+                var buffer = new byte[4096];
+                var bytesRead = await sslStream.ReadAsync(buffer);
+                var response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                Assert.AreEqual(testMessage, response, $"Response should match sent message for TLS connection {i}");
+                
+                connections.Add((client, sslStream));
+                await Task.Delay(30);
+            }
+            catch
+            {
+                // Ignore connection errors
+            }
+        }
+
+        await Task.Delay(300);
+
+        foreach (var (client, sslStream) in connections)
+        {
+            try
+            {
+                sslStream.Dispose();
+                client.Close();
+            }
+            catch
+            {
+                // Ignore close errors
+            }
+        }
+
+        await Task.Delay(300);
+
+        var connectionCounts = _tlsBackendServers.Select(s => s.ConnectionCount).ToList();
+        Assert.IsTrue(connectionCounts.All(c => c > 0), $"All TLS backends should have received at least one connection. Connection counts: [{string.Join(", ", connectionCounts)}]");
+        Assert.IsGreaterThanOrEqualTo(20, connectionCounts.Sum(), $"Total connections should be at least 20, got {connectionCounts.Sum()}");
+        
+        // Verify all messages were received by backends
+        var allReceivedMessages = _tlsBackendServers.SelectMany(s => s.ReceivedMessages).ToList();
+        foreach (var message in messages)
+        {
+            Assert.Contains(message, allReceivedMessages, $"Message '{message}' should have been received by a TLS backend");
+        }
+    }
+
+    [TestMethod]
+    public async Task LoadBalancer_Strategy_Fallback_UsesFirstBackendWhenAllHealthy()
     {
         await SetupLoadBalancerAsync(backendCount: 3, strategy: "Fallback");
 
@@ -468,7 +656,69 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
     }
 
     [TestMethod]
-    public async Task LoadBalancer_Fallback_MovesToNextBackend_WhenFirstFails()
+    public async Task LoadBalancer_Strategy_Fallback_Ssl_UsesFirstBackendWhenAllHealthy()
+    {
+        await SetupTlsLoadBalancerAsync(backendCount: 3, strategy: "Fallback");
+
+        var messages = new List<string>();
+        var connections = new List<(TcpClient client, SslStream sslStream)>();
+        
+        for (int i = 0; i < 10; i++)
+        {
+            var client = new TcpClient();
+            await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
+            await Task.Delay(50);
+            var stream = client.GetStream();
+            var sslStream = new SslStream(stream, false, (sender, certificate, chain, sslPolicyErrors) => true, null);
+            await sslStream.AuthenticateAsClientAsync("127.0.0.1");
+            var testMessage = $"test {i}";
+            messages.Add(testMessage);
+            var testBytes = Encoding.UTF8.GetBytes(testMessage);
+            await sslStream.WriteAsync(testBytes);
+            
+            var buffer = new byte[4096];
+            var bytesRead = await sslStream.ReadAsync(buffer);
+            var response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+            Assert.AreEqual(testMessage, response);
+            
+            connections.Add((client, sslStream));
+            await Task.Delay(100);
+        }
+
+        await Task.Delay(500);
+        
+        var firstBackendMessages = _tlsBackendServers[0].ReceivedMessages;
+        Assert.IsGreaterThan(0, firstBackendMessages.Count, $"First TLS backend should have received messages. Got {firstBackendMessages.Count} messages");
+        
+        foreach (var (client, sslStream) in connections)
+        {
+            try
+            {
+                sslStream.Dispose();
+                client.Close();
+            }
+            catch
+            {
+                // Ignore close errors
+            }
+        }
+        
+        await Task.Delay(500);
+        
+        var totalMessages = _tlsBackendServers.Sum(s => s.ReceivedMessages.Count);
+        Assert.IsGreaterThanOrEqualTo(10, totalMessages, $"Expected at least 10 messages, got {totalMessages}");
+        
+        Assert.AreEqual(totalMessages, firstBackendMessages.Count, 
+            $"Fallback strategy should use only the first healthy TLS backend when all are healthy. First backend: {firstBackendMessages.Count}, Total: {totalMessages}, Backend counts: [{string.Join(", ", _tlsBackendServers.Select(s => s.ReceivedMessages.Count))}]");
+        
+        foreach (var message in messages)
+        {
+            Assert.Contains(message, firstBackendMessages, $"Message '{message}' should be in first TLS backend");
+        }
+    }
+
+    [TestMethod]
+    public async Task LoadBalancer_Strategy_Fallback_MovesToNextBackend_WhenFirstFails()
     {
         await SetupLoadBalancerAsync(backendCount: 3, strategy: "Fallback", recoveryCheckIntervalSeconds: 1, recoveryDelaySeconds: 1);
 
@@ -564,6 +814,120 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
         {
             try
             {
+                client.Close();
+            }
+            catch
+            {
+                // Ignore close errors
+            }
+        }
+        
+        await Task.Delay(500);
+    }
+
+    [TestMethod]
+    public async Task LoadBalancer_Strategy_Fallback_Ssl_MovesToNextBackend_WhenFirstFails()
+    {
+        await SetupTlsLoadBalancerAsync(backendCount: 3, strategy: "Fallback", recoveryCheckIntervalSeconds: 1, recoveryDelaySeconds: 1);
+
+        var firstBackend = _tlsBackendServers[0];
+        var secondBackend = _tlsBackendServers[1];
+        var thirdBackend = _tlsBackendServers[2];
+
+        var initialFirstMessages = firstBackend.ReceivedMessages.Count;
+        var initialClients = new List<(TcpClient client, SslStream sslStream)>();
+
+        // Send initial messages to first backend
+        for (int i = 0; i < 5; i++)
+        {
+            var client = new TcpClient();
+            await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
+            await Task.Delay(50);
+            var stream = client.GetStream();
+            var sslStream = new SslStream(stream, false, (sender, certificate, chain, sslPolicyErrors) => true, null);
+            await sslStream.AuthenticateAsClientAsync("127.0.0.1");
+            var testMessage = $"test {i}";
+            var testBytes = Encoding.UTF8.GetBytes(testMessage);
+            await sslStream.WriteAsync(testBytes);
+            
+            var buffer = new byte[4096];
+            var bytesRead = await sslStream.ReadAsync(buffer);
+            var response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+            Assert.AreEqual(testMessage, response);
+            initialClients.Add((client, sslStream));
+            await Task.Delay(50);
+        }
+
+        await Task.Delay(500);
+        
+        // Check messages before closing connections
+        Assert.IsGreaterThan(initialFirstMessages, firstBackend.ReceivedMessages.Count, 
+            $"First TLS backend should have received messages initially. Initial: {initialFirstMessages}, Current: {firstBackend.ReceivedMessages.Count}");
+        
+        // Close initial connections
+        foreach (var (client, sslStream) in initialClients)
+        {
+            try
+            {
+                sslStream.Dispose();
+                client.Close();
+            }
+            catch
+            {
+                // Ignore close errors
+            }
+        }
+        
+        await Task.Delay(500);
+
+        // Stop first backend
+        await firstBackend.StopAsync();
+        
+        // Wait for health check to mark it as unhealthy and for recovery delay
+        await Task.Delay(2500);
+
+        var secondBackendInitialMessages = secondBackend.ReceivedMessages.Count;
+        var fallbackClients = new List<(TcpClient client, SslStream sslStream)>();
+
+        // Send messages that should now go to second backend
+        for (int i = 0; i < 5; i++)
+        {
+            try
+            {
+                var client = new TcpClient();
+                await client.ConnectAsync(LoadBalancerAddress, _loadBalancerPort);
+                await Task.Delay(50);
+                var stream = client.GetStream();
+                var sslStream = new SslStream(stream, false, (sender, certificate, chain, sslPolicyErrors) => true, null);
+                await sslStream.AuthenticateAsClientAsync("127.0.0.1");
+                var testMessage = $"fallback {i}";
+                var testBytes = Encoding.UTF8.GetBytes(testMessage);
+                await sslStream.WriteAsync(testBytes);
+                
+                var buffer = new byte[4096];
+                var bytesRead = await sslStream.ReadAsync(buffer);
+                var response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                Assert.AreEqual(testMessage, response);
+                fallbackClients.Add((client, sslStream));
+                await Task.Delay(50);
+            }
+            catch
+            {
+            }
+        }
+
+        await Task.Delay(500);
+        
+        // Check messages before closing connections
+        Assert.IsGreaterThan(secondBackendInitialMessages, secondBackend.ReceivedMessages.Count, 
+            $"Second TLS backend should have received messages after first backend fails. Initial: {secondBackendInitialMessages}, Current: {secondBackend.ReceivedMessages.Count}, Backend counts: [{string.Join(", ", _tlsBackendServers.Select(s => s.ReceivedMessages.Count))}]");
+        
+        // Close fallback connections
+        foreach (var (client, sslStream) in fallbackClients)
+        {
+            try
+            {
+                sslStream.Dispose();
                 client.Close();
             }
             catch

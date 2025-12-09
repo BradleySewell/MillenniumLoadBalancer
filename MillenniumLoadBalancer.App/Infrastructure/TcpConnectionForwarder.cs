@@ -21,6 +21,11 @@ internal class TcpConnectionForwarder : IConnectionForwarder
 
     public async Task<bool> ForwardAsync(Stream clientStream, IBackendService backend, CancellationToken cancellationToken = default)
     {
+        // Note: This forwarder uses TCP passthrough, so it forwards all bytes transparently.
+        // If EnableTls is true, the TLS handshake happens directly between client and backend.
+        // The backend.EnableTls and backend.ValidateCertificate settings are only used by
+        // the health check service, not by this forwarder.
+        
         cancellationToken.ThrowIfCancellationRequested();
         
         using var backendClient = new System.Net.Sockets.TcpClient();

@@ -137,4 +137,78 @@ public sealed class BackendHealthCheckServiceTests
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.AtLeastOnce);
     }
+
+    [TestMethod]
+    public async Task CheckHealthAsync_WithTlsEnabled_ButNonTlsBackend_ReturnsFalse()
+    {
+        
+        var service = new BackendHealthCheckService(_loggerMock.Object);
+        var backend = new Mock<IBackendService>();
+        
+        // Start a simple TCP listener (non-TLS)
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var endpoint = (IPEndPoint)listener.LocalEndpoint;
+        
+        backend.Setup(b => b.Address).Returns(endpoint.Address.ToString());
+        backend.Setup(b => b.Port).Returns(endpoint.Port);
+        backend.Setup(b => b.EnableTls).Returns(true);
+        backend.Setup(b => b.ValidateCertificate).Returns(false);
+
+        
+        var result = await service.CheckHealthAsync(backend.Object, timeoutSeconds: 5);
+
+        
+        // TLS handshake should fail on a non-TLS server
+        Assert.IsFalse(result);
+        
+        listener.Stop();
+    }
+
+    [TestMethod]
+    public async Task CheckHealthAsync_WithTlsDisabled_DoesNotPerformTlsHandshake()
+    {
+        
+        var service = new BackendHealthCheckService(_loggerMock.Object);
+        var backend = new Mock<IBackendService>();
+        
+        // Start a simple TCP listener
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var endpoint = (IPEndPoint)listener.LocalEndpoint;
+        
+        backend.Setup(b => b.Address).Returns(endpoint.Address.ToString());
+        backend.Setup(b => b.Port).Returns(endpoint.Port);
+        backend.Setup(b => b.EnableTls).Returns(false);
+        backend.Setup(b => b.ValidateCertificate).Returns(true);
+
+        
+        var result = await service.CheckHealthAsync(backend.Object, timeoutSeconds: 5);
+
+        
+        // Should succeed with just TCP check, no TLS handshake
+        Assert.IsTrue(result);
+        
+        listener.Stop();
+    }
+
+    [TestMethod]
+    public async Task CheckHealthAsync_WithTlsEnabled_AndUnreachableBackend_ReturnsFalse()
+    {
+        
+        var service = new BackendHealthCheckService(_loggerMock.Object);
+        var backend = new Mock<IBackendService>();
+        
+        backend.Setup(b => b.Address).Returns("127.0.0.1");
+        backend.Setup(b => b.Port).Returns(65535); // Unreachable port
+        backend.Setup(b => b.EnableTls).Returns(true);
+        backend.Setup(b => b.ValidateCertificate).Returns(true);
+
+        
+        var result = await service.CheckHealthAsync(backend.Object, timeoutSeconds: 1);
+
+        
+        // Should fail at TCP connection, before TLS handshake
+        Assert.IsFalse(result);
+    }
 }

@@ -17,13 +17,13 @@ public sealed class BackendServiceTests
     }
 
     [TestMethod]
-    public void IsHealthy_Initially_ReturnsTrue()
+    public void IsHealthy_Initially_ReturnsFalse()
     {
 
         var backend = new BackendService("127.0.0.1", 8080);
 
         
-        Assert.IsTrue(backend.IsHealthy);
+        Assert.IsFalse(backend.IsHealthy);
     }
 
     [TestMethod]
@@ -138,5 +138,27 @@ public sealed class BackendServiceTests
 
         // No exceptions thrown, final state should be healthy
         Assert.IsTrue(backend.IsHealthy);
+    }
+
+    [TestMethod]
+    public void Constructor_WithTlsEnabled_SetsTlsProperties()
+    {
+        
+        var backend = new BackendService("127.0.0.1", 8080, enableTls: true, validateCertificate: false);
+
+        
+        Assert.IsTrue(backend.EnableTls);
+        Assert.IsFalse(backend.ValidateCertificate);
+    }
+
+    [TestMethod]
+    public void Constructor_DefaultTlsSettings_AreCorrect()
+    {
+        
+        var backend = new BackendService("127.0.0.1", 8080);
+
+        
+        Assert.IsFalse(backend.EnableTls);
+        Assert.IsTrue(backend.ValidateCertificate);
     }
 }
