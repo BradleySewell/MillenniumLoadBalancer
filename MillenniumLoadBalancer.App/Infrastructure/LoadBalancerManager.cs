@@ -30,9 +30,10 @@ public class LoadBalancerManager : ILoadBalancerManager
 
     public void Initialize()
     {
-        _hostLogger.LogInformation("+-------------------------------------------------------------+");
-        _hostLogger.LogInformation("|                 MILLENNIUM LOAD BALANCER                    |");
-        _hostLogger.LogInformation("+-------------------------------------------------------------+");
+        Console.WriteLine("+-------------------------------------------------------------+");
+        Console.WriteLine("|                 MILLENNIUM LOAD BALANCER                    |");
+        Console.WriteLine("|                             V1                              |");
+        Console.WriteLine("+-------------------------------------------------------------+");
 
         var loadBalancerOptions = _configuration.GetSection("LoadBalancer").Get<LoadBalancerOptions>()
             ?? throw new InvalidOperationException("LoadBalancer configuration is missing");
