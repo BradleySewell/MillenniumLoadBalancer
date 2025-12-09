@@ -15,9 +15,11 @@ public class MainViewModel : INotifyPropertyChanged
     private int _loadBalancerPort = 8080;
     private string _newBackendAddress = "127.0.0.1";
     private int _newBackendPort = 5001;
+    private bool _newBackendEnableTls = false;
     private string _newBackendResponse = "";
     private int _newBackendResponseDelay = 0;
     private string _newRequestMessage = "";
+    private bool _requestEnableTls = false;
 
     public MainViewModel()
     {
@@ -62,6 +64,12 @@ public class MainViewModel : INotifyPropertyChanged
         set { _newBackendPort = value; OnPropertyChanged(); }
     }
 
+    public bool NewBackendEnableTls
+    {
+        get => _newBackendEnableTls;
+        set { _newBackendEnableTls = value; OnPropertyChanged(); }
+    }
+
     public string NewBackendResponse
     {
         get => _newBackendResponse;
@@ -80,6 +88,12 @@ public class MainViewModel : INotifyPropertyChanged
         set { _newRequestMessage = value; OnPropertyChanged(); }
     }
 
+    public bool RequestEnableTls
+    {
+        get => _requestEnableTls;
+        set { _requestEnableTls = value; OnPropertyChanged(); }
+    }
+
     public async Task AddBackendAsync()
     {
         if (string.IsNullOrWhiteSpace(NewBackendAddress) || NewBackendPort <= 0)
@@ -96,6 +110,7 @@ public class MainViewModel : INotifyPropertyChanged
         {
             Address = NewBackendAddress,
             Port = NewBackendPort,
+            EnableTls = NewBackendEnableTls,
             Response = NewBackendResponse,
             ResponseDelay = NewBackendResponseDelay
         };
@@ -191,7 +206,7 @@ public class MainViewModel : INotifyPropertyChanged
         try
         {
             request.SentTime = DateTime.Now;
-            var response = await _clientService.SendRequestAsync(LoadBalancerAddress, LoadBalancerPort, message);
+            var response = await _clientService.SendRequestAsync(LoadBalancerAddress, LoadBalancerPort, message, RequestEnableTls);
             request.ReceivedTime = DateTime.Now;
             request.Response = response;
             request.Status = RequestStatus.Success;
@@ -261,7 +276,7 @@ public class MainViewModel : INotifyPropertyChanged
         try
         {
             request.SentTime = DateTime.Now;
-            var response = await _clientService.SendRequestAsync(LoadBalancerAddress, LoadBalancerPort, request.Message);
+            var response = await _clientService.SendRequestAsync(LoadBalancerAddress, LoadBalancerPort, request.Message, RequestEnableTls);
             request.ReceivedTime = DateTime.Now;
             request.Response = response;
             request.Status = RequestStatus.Success;

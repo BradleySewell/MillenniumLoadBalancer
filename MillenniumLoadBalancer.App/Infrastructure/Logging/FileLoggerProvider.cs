@@ -22,7 +22,7 @@ internal class FileLoggerProvider : ILoggerProvider
             {
                 Directory.CreateDirectory(directory);
             }
-            catch (UnauthorizedAccessException ex)
+            catch (UnauthorizedAccessException)
             {
             }
             catch

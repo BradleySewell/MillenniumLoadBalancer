@@ -12,6 +12,7 @@ public class BackendViewModel : INotifyPropertyChanged
     private string _status = "Stopped";
     private string _response = "";
     private int _responseDelay = 0;
+    private bool _enableTls = false;
 
     public string Address
     {
@@ -53,6 +54,12 @@ public class BackendViewModel : INotifyPropertyChanged
     {
         get => _responseDelay;
         set { _responseDelay = value; OnPropertyChanged(); }
+    }
+
+    public bool EnableTls
+    {
+        get => _enableTls;
+        set { _enableTls = value; OnPropertyChanged(); }
     }
 
     public string DisplayName => $"{Address}:{Port}";

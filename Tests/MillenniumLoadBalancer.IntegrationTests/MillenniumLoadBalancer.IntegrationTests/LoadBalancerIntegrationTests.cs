@@ -646,7 +646,7 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
         var totalMessages = _backendServers.Sum(s => s.ReceivedMessages.Count);
         Assert.IsGreaterThanOrEqualTo(10, totalMessages, $"Expected at least 10 messages, got {totalMessages}");
         
-        Assert.AreEqual(totalMessages, firstBackendMessages.Count, 
+        Assert.HasCount(totalMessages, firstBackendMessages, 
             $"Fallback strategy should use only the first healthy backend when all are healthy. First backend: {firstBackendMessages.Count}, Total: {totalMessages}, Backend counts: [{string.Join(", ", _backendServers.Select(s => s.ReceivedMessages.Count))}]");
         
         foreach (var message in messages)
@@ -708,7 +708,7 @@ public sealed class LoadBalancerIntegrationTests : IDisposable
         var totalMessages = _tlsBackendServers.Sum(s => s.ReceivedMessages.Count);
         Assert.IsGreaterThanOrEqualTo(10, totalMessages, $"Expected at least 10 messages, got {totalMessages}");
         
-        Assert.AreEqual(totalMessages, firstBackendMessages.Count, 
+        Assert.HasCount(totalMessages, firstBackendMessages, 
             $"Fallback strategy should use only the first healthy TLS backend when all are healthy. First backend: {firstBackendMessages.Count}, Total: {totalMessages}, Backend counts: [{string.Join(", ", _tlsBackendServers.Select(s => s.ReceivedMessages.Count))}]");
         
         foreach (var message in messages)

@@ -92,7 +92,8 @@ public class MockTlsBackendServer : IDisposable
             DateTimeOffset.UtcNow.AddDays(-1),
             DateTimeOffset.UtcNow.AddDays(365));
         
-        return new X509Certificate2(certificate.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pfx));
+        var pfxBytes = certificate.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pfx);
+        return System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadPkcs12(pfxBytes, null);
     }
 
     public async Task StartAsync()

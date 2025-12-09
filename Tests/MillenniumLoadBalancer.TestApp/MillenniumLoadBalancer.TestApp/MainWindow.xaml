@@ -37,6 +37,7 @@
                     <TextBox Text="{Binding NewBackendAddress}" Width="120" Margin="0,0,15,0"/>
                     <Label Content="Port:" VerticalAlignment="Center" Margin="0,0,5,0"/>
                     <TextBox Text="{Binding NewBackendPort}" Width="80" Margin="0,0,15,0"/>
+                    <CheckBox Content="Enable TLS" IsChecked="{Binding NewBackendEnableTls}" VerticalAlignment="Center" Margin="0,0,15,0"/>
                     <Label Content="Response:" VerticalAlignment="Center" Margin="0,0,5,0"/>
                     <TextBox Text="{Binding NewBackendResponse}" Width="150" Margin="0,0,15,0"/>
                     <Label Content="Response Delay (ms):" VerticalAlignment="Center" Margin="0,0,5,0"/>
@@ -55,6 +56,7 @@
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Address" Binding="{Binding Address}" Width="150"/>
                         <DataGridTextColumn Header="Port" Binding="{Binding Port}" Width="80"/>
+                        <DataGridCheckBoxColumn Header="TLS" Binding="{Binding EnableTls, UpdateSourceTrigger=PropertyChanged}" Width="60" IsReadOnly="False"/>
                         <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="100"/>
                         <DataGridTextColumn Header="Connections" Binding="{Binding ConnectionCount}" Width="100"/>
                         <DataGridTextColumn Header="Response" Binding="{Binding Response, UpdateSourceTrigger=PropertyChanged}" Width="*" IsReadOnly="False"/>
@@ -115,6 +117,7 @@
                 <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
                     <Label Content="Message:" VerticalAlignment="Center" Margin="0,0,5,0"/>
                     <TextBox Text="{Binding NewRequestMessage}" Width="300" Margin="0,0,15,0"/>
+                    <CheckBox Content="Enable TLS" IsChecked="{Binding RequestEnableTls}" VerticalAlignment="Center" Margin="0,0,15,0"/>
                     <Button Content="Add Request" Click="AddRequest_Click" Padding="10,5"/>
                 </StackPanel>
 

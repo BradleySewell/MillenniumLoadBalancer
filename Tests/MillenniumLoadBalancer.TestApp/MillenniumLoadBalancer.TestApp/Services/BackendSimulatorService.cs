@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
+using System.IO;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Windows;
 using MillenniumLoadBalancer.TestApp.ViewModels;
@@ -28,7 +31,7 @@ public class BackendSimulatorService
             await StopBackendAsync(address, port);
         }
 
-        var server = new BackendServer(address, port, viewModel, _traceService);
+        var server = new BackendServer(address, port, viewModel, _traceService, viewModel.EnableTls);
         
         try
         {
@@ -165,7 +168,9 @@ public class BackendSimulatorService
         private readonly object _lock = new();
         private int _connectionCount = 0;
         private readonly BackendViewModel _viewModel;
-            private readonly TraceService? _traceService;
+        private readonly TraceService? _traceService;
+        private readonly bool _enableTls;
+        private readonly X509Certificate2? _serverCertificate;
 
         public string Address { get; }
         public int Port { get; private set; }
@@ -181,13 +186,58 @@ public class BackendSimulatorService
             }
         }
 
-            public BackendServer(string address, int port, BackendViewModel viewModel, TraceService? traceService)
+        public BackendServer(string address, int port, BackendViewModel viewModel, TraceService? traceService, bool enableTls)
         {
             Address = address;
             _viewModel = viewModel;
-                _traceService = traceService;
+            _traceService = traceService;
+            _enableTls = enableTls;
             _listener = new TcpListener(IPAddress.Parse(address), port);
             _cancellationTokenSource = new CancellationTokenSource();
+            
+            if (_enableTls)
+            {
+                _serverCertificate = CreateSelfSignedCertificate(address);
+            }
+        }
+
+        private static X509Certificate2 CreateSelfSignedCertificate(string hostname)
+        {
+            using var rsa = System.Security.Cryptography.RSA.Create(2048);
+            var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+                $"CN={hostname}",
+                rsa,
+                System.Security.Cryptography.HashAlgorithmName.SHA256,
+                System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+            
+            request.CertificateExtensions.Add(
+                new System.Security.Cryptography.X509Certificates.X509KeyUsageExtension(
+                    System.Security.Cryptography.X509Certificates.X509KeyUsageFlags.DigitalSignature |
+                    System.Security.Cryptography.X509Certificates.X509KeyUsageFlags.KeyEncipherment,
+                    false));
+            
+            request.CertificateExtensions.Add(
+                new System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+                    new System.Security.Cryptography.OidCollection
+                    {
+                        new System.Security.Cryptography.Oid("1.3.6.1.5.5.7.3.1") // Server Authentication
+                    },
+                    false));
+            
+            var sanBuilder = new System.Security.Cryptography.X509Certificates.SubjectAlternativeNameBuilder();
+            sanBuilder.AddDnsName(hostname);
+            if (IPAddress.TryParse(hostname, out var ip))
+            {
+                sanBuilder.AddIpAddress(ip);
+            }
+            request.CertificateExtensions.Add(sanBuilder.Build());
+            
+            var certificate = request.CreateSelfSigned(
+                DateTimeOffset.UtcNow.AddDays(-1),
+                DateTimeOffset.UtcNow.AddDays(365));
+            
+            var pfxBytes = certificate.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pfx);
+            return System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadPkcs12(pfxBytes, null);
         }
 
         public async Task StartAsync()
@@ -274,7 +324,35 @@ public class BackendSimulatorService
             {
                 using (client)
                 {
-                    var stream = client.GetStream();
+                    var baseStream = client.GetStream();
+                    Stream stream;
+                    
+                    // If TLS is enabled, perform TLS handshake
+                    if (_enableTls && _serverCertificate != null)
+                    {
+                        var sslStream = new SslStream(baseStream, false);
+                        try
+                        {
+                            await sslStream.AuthenticateAsServerAsync(
+                                _serverCertificate,
+                                false,
+                                System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+                                false);
+                            stream = sslStream;
+                            _traceService?.AddTrace($"Backend {Address}:{Port} - TLS handshake completed");
+                        }
+                        catch (Exception ex)
+                        {
+                            _traceService?.AddTrace($"Backend {Address}:{Port} - TLS handshake failed: {ex.Message}");
+                            sslStream.Dispose();
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        stream = baseStream;
+                    }
+                    
                     var buffer = new byte[4096];
 
                     while (!cancellationToken.IsCancellationRequested)
@@ -321,6 +399,12 @@ public class BackendSimulatorService
                         var responseBytes = Encoding.UTF8.GetBytes(responseToSend);
                         await stream.WriteAsync(responseBytes, 0, responseBytes.Length, cancellationToken);
                     }
+                    
+                    // Dispose SSL stream if it was created
+                    if (_enableTls && stream is SslStream ssl)
+                    {
+                        ssl.Dispose();
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -347,6 +431,7 @@ public class BackendSimulatorService
             StopAsync().Wait(TimeSpan.FromSeconds(2));
             _cancellationTokenSource.Dispose();
             _listener.Stop();
+            _serverCertificate?.Dispose();
         }
     }
 }

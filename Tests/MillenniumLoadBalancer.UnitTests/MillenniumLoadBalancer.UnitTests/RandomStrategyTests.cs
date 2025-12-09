@@ -100,6 +100,10 @@ public sealed class RandomStrategyTests
 
         var uniquePorts = results.Select(r => r!.Port).Distinct().ToList();
         
-        Assert.IsTrue(uniquePorts.Count > 1, "Random strategy should select different backends across multiple calls");
+        // With 100 calls and 10 backends, we should get more than 1 unique selection
+        // This is a probabilistic test, but with 100 calls it should be very unlikely to only get 1 unique backend
+        // Note: Using Assert.IsTrue instead of Assert.IsGreaterThan to avoid parameter order confusion
+        var uniqueCount = uniquePorts.Count;
+        Assert.IsTrue(uniqueCount > 1, $"Random strategy should select different backends across multiple calls. Got {uniqueCount} unique backends out of 100 calls with 10 available backends. Expected more than 1 unique backend.");
     }
 }
