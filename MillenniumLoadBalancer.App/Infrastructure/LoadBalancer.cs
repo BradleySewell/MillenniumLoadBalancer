@@ -19,6 +19,8 @@ internal class LoadBalancer : ILoadBalancer, IDisposable
     private readonly int _recoveryCheckIntervalSeconds;
     private readonly int _recoveryDelaySeconds;
     private readonly ILogger<LoadBalancer> _logger;
+    private readonly IConnectionTracker? _connectionTracker;
+    private readonly IVisualConsoleService? _visualConsoleService;
     
     private TcpListener? _listener;
     private CancellationTokenSource? _cancellationTokenSource;
@@ -35,7 +37,9 @@ internal class LoadBalancer : ILoadBalancer, IDisposable
         IBackendHealthCheckService healthCheckService,
         int recoveryCheckIntervalSeconds,
         int recoveryDelaySeconds,
-        ILogger<LoadBalancer> logger)
+        ILogger<LoadBalancer> logger,
+        IConnectionTracker? connectionTracker = null,
+        IVisualConsoleService? visualConsoleService = null)
     {
         _name = name;
         _listenAddress = listenAddress;
@@ -47,6 +51,8 @@ internal class LoadBalancer : ILoadBalancer, IDisposable
         _recoveryCheckIntervalSeconds = recoveryCheckIntervalSeconds;
         _recoveryDelaySeconds = recoveryDelaySeconds;
         _logger = logger;
+        _connectionTracker = connectionTracker;
+        _visualConsoleService = visualConsoleService;
     }
 
     public string Name => _name;
@@ -184,6 +190,7 @@ internal class LoadBalancer : ILoadBalancer, IDisposable
                         if (isHealthy)
                         {
                             backend.MarkHealthy();
+                            _connectionTracker?.UpdateBackendHealth(_name, backend.Address, backend.Port, true);
                             if (isFirstCheck)
                             {
                                 _logger.LogInformation($"Load balancer '{_name}': Backend {backend.Address}:{backend.Port} is healthy");
@@ -196,6 +203,7 @@ internal class LoadBalancer : ILoadBalancer, IDisposable
                         else
                         {
                             backend.MarkUnhealthy();
+                            _connectionTracker?.UpdateBackendHealth(_name, backend.Address, backend.Port, false);
                         }
                     }
                     catch (Exception ex)
@@ -231,6 +239,7 @@ internal class LoadBalancer : ILoadBalancer, IDisposable
                 {
                     var tcpClient = await _listener!.AcceptTcpClientAsync(cancellationToken);
                     var clientEndpoint = tcpClient.Client.RemoteEndPoint?.ToString() ?? "unknown";
+                    _connectionTracker?.RecordConnectionAccepted(_name, clientEndpoint);
                     _logger.LogInformation($"Load balancer '{_name}': New connection accepted from {clientEndpoint}");
                     
                     _ = Task.Run(() => HandleConnectionAsync(tcpClient, clientEndpoint, cancellationToken), cancellationToken);
@@ -283,13 +292,19 @@ internal class LoadBalancer : ILoadBalancer, IDisposable
 
                         if (connected)
                         {
+                            _connectionTracker?.RecordConnectionForwarded(_name, selectedBackend.Address, selectedBackend.Port);
                             _logger.LogInformation($"Load balancer '{_name}': Client {clientEndpoint} - Successfully forwarded connection to backend {selectedBackend.Address}:{selectedBackend.Port}");
+                            // Connection completed successfully, mark as closed
+                            _connectionTracker?.RecordConnectionClosed(_name);
                             return;
                         }
                         else
                         {
                             selectedBackend.MarkUnhealthy();
+                            _connectionTracker?.UpdateBackendHealth(_name, selectedBackend.Address, selectedBackend.Port, false);
+                            _connectionTracker?.RecordConnectionFailed(_name, selectedBackend.Address, selectedBackend.Port);
                             _logger.LogWarning($"Load balancer '{_name}': Client {clientEndpoint} - Backend {selectedBackend.Address}:{selectedBackend.Port} connection failed, marking as unhealthy and trying next backend");
+                            // Don't close connection here - will retry with another backend
                             continue;
                         }
                     }
@@ -297,17 +312,24 @@ internal class LoadBalancer : ILoadBalancer, IDisposable
                     {
                         // Exceptions here are data transfer failures (connection succeeded but transfer failed), These should NOT retry with another backend.
                         selectedBackend.MarkUnhealthy();
+                        _connectionTracker?.UpdateBackendHealth(_name, selectedBackend.Address, selectedBackend.Port, false);
+                        _connectionTracker?.RecordConnectionFailed(_name, selectedBackend.Address, selectedBackend.Port);
+                        _connectionTracker?.RecordConnectionClosed(_name);
                         _logger.LogWarning($"Load balancer '{_name}': Client {clientEndpoint} - Backend {selectedBackend.Address}:{selectedBackend.Port} data transfer failed after successful connection, marking as unhealthy: {ex.Message}");
-                        return; 
+                        return;
                     }
                 }
 
                 
+                _connectionTracker?.RecordConnectionFailed(_name);
+                _connectionTracker?.RecordConnectionClosed(_name);
                 _logger.LogWarning($"Load balancer '{_name}': Client {clientEndpoint} - All backends failed to connect, closing connection");
             }
         }
         catch (Exception ex)
         {
+            _connectionTracker?.RecordConnectionFailed(_name);
+            _connectionTracker?.RecordConnectionClosed(_name);
             _logger.LogDebug(ex, $"Load balancer '{_name}': Client {clientEndpoint} - Connection handling error");
         }
     }

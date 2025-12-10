@@ -1,4 +1,4 @@
-using MillenniumLoadBalancer.App.Core;
+using MillenniumLoadBalancer.App.Core.Entities;
 
 namespace MillenniumLoadBalancer.UnitTests;
 

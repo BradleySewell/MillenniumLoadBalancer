@@ -1,10 +1,10 @@
 using MillenniumLoadBalancer.App.Core.Interfaces;
 
-namespace MillenniumLoadBalancer.App.Core;
+namespace MillenniumLoadBalancer.App.Core.Strategies;
 
 internal class RoundRobinStrategy : ILoadBalancingStrategy
 {
-    private int _currentIndex = 0;
+    private long _currentIndex = 0;
     private readonly object _lock = new();
 
     public IBackendService? SelectBackend(IEnumerable<IBackendService> backends)
@@ -18,17 +18,8 @@ internal class RoundRobinStrategy : ILoadBalancingStrategy
 
         lock (_lock)
         {
-            var selected = healthyBackends[_currentIndex % healthyBackends.Count];
-            
-            // Reset to 0 when reaching int.MaxValue to prevent overflow
-            if (_currentIndex >= int.MaxValue)
-            {
-                _currentIndex = 0;
-            }
-            else
-            {
-                _currentIndex++;
-            }
+            var selected = healthyBackends[(int)(_currentIndex % healthyBackends.Count)];
+            _currentIndex++;
             
             return selected;
         }

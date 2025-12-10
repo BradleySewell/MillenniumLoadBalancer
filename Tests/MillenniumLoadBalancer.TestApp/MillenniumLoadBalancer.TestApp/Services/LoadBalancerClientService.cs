@@ -53,7 +53,15 @@ public class LoadBalancerClientService
         var messageBytes = Encoding.UTF8.GetBytes(message);
         _traceService?.AddTrace($"Sending request to load balancer: {message}");
         await stream.WriteAsync(messageBytes);
+        
+        // Shutdown the send side to signal we're done sending
+        // This allows the backend to detect we're done and close its side
+        if (!enableTls)
+        {
+            client.Client.Shutdown(SocketShutdown.Send);
+        }
 
+        // Read the response (read once - backend typically sends response in one go)
         var buffer = new byte[4096];
         var bytesRead = await stream.ReadAsync(buffer);
         var response = Encoding.UTF8.GetString(buffer, 0, bytesRead);

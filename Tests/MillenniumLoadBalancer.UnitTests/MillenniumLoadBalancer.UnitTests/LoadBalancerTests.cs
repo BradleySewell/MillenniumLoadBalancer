@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using MillenniumLoadBalancer.App.Core;
+using MillenniumLoadBalancer.App.Core.Entities;
 using MillenniumLoadBalancer.App.Core.Interfaces;
 using MillenniumLoadBalancer.App.Infrastructure;
 using Moq;

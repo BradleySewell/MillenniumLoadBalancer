@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using MillenniumLoadBalancer.App.Core.Configuration;
 using MillenniumLoadBalancer.App.Core.Interfaces;
 using MillenniumLoadBalancer.App.Core.Services;
 using MillenniumLoadBalancer.App.Infrastructure.Factories;
@@ -31,18 +32,26 @@ public static class ServiceConfiguration
         }
 
         services.AddSingleton<IConfiguration>(configuration);
+        
+        var loadBalancerOptions = configuration.GetSection("LoadBalancer").Get<LoadBalancerOptions>();
+        var enableVisualMode = loadBalancerOptions?.EnableVisualMode ?? false;
+        
         services.AddLogging(builder =>
         {
-            builder.AddConsole(options =>
+            // Only add console logging if visual mode is disabled
+            if (!enableVisualMode)
             {
-                options.FormatterName = "simple";
-            });
-            builder.AddSimpleConsole(options =>
-            {
-                options.IncludeScopes = false;
-                options.SingleLine = true;
-                options.TimestampFormat = "HH:mm:ss ";
-            });
+                builder.AddConsole(options =>
+                {
+                    options.FormatterName = "simple";
+                });
+                builder.AddSimpleConsole(options =>
+                {
+                    options.IncludeScopes = false;
+                    options.SingleLine = true;
+                    options.TimestampFormat = "HH:mm:ss ";
+                });
+            }
 
             var logDirectory = GetLogDirectory();
             var logFileName = $"loadbalancer-{DateTime.Now.ToString("yyyyMMdd")}.log";
@@ -50,6 +59,9 @@ public static class ServiceConfiguration
             builder.AddProvider(new FileLoggerProvider(logFilePath, LogLevel.Information));
             builder.SetMinimumLevel(LogLevel.Debug);
         });
+
+        services.AddSingleton<IConnectionTracker, ConnectionTracker>();
+        services.AddSingleton<IVisualConsoleService, VisualConsoleService>();
 
         services.AddSingleton<IBackendHealthCheckService, BackendHealthCheckService>();
         services.AddSingleton<ILoadBalancingStrategyFactory, LoadBalancingStrategyFactory>();
@@ -102,7 +114,7 @@ public static class ServiceConfiguration
                 return Path.Combine(tempDir, "millenniumloadbalancer", "logs");
             }
             
-            // Last resort: use current directory
+            // Last resort is to use current directory. needed for running unit tests in github actions
             return Path.Combine(Directory.GetCurrentDirectory(), "logs");
         }
     }

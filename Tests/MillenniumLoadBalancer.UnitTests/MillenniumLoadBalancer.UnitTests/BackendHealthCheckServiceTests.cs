@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 using MillenniumLoadBalancer.App.Core.Interfaces;
-using MillenniumLoadBalancer.App.Core.Services;
+using MillenniumLoadBalancer.App.Infrastructure;
 using Moq;
 using System.Net;
 using System.Net.Sockets;

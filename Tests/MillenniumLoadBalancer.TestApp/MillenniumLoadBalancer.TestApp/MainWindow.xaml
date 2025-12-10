@@ -118,7 +118,11 @@
                     <Label Content="Message:" VerticalAlignment="Center" Margin="0,0,5,0"/>
                     <TextBox Text="{Binding NewRequestMessage}" Width="300" Margin="0,0,15,0"/>
                     <CheckBox Content="Enable TLS" IsChecked="{Binding RequestEnableTls}" VerticalAlignment="Center" Margin="0,0,15,0"/>
-                    <Button Content="Add Request" Click="AddRequest_Click" Padding="10,5"/>
+                    <Button Content="Add Request" Click="AddRequest_Click" Padding="10,5" Margin="0,0,20,0"/>
+                    <Label Content="Bulk Add:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <Label Content="Count:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <TextBox Text="{Binding BulkRequestCount}" Width="60" Margin="0,0,10,0"/>
+                    <Button Content="Add Numbered Requests" Click="AddBulkRequests_Click" Padding="10,5"/>
                 </StackPanel>
 
                 <!-- Requests List -->
@@ -196,7 +200,6 @@
                 <!-- Action Buttons -->
                 <StackPanel Grid.Row="2" Orientation="Horizontal">
                     <Button Content="Send All" Click="SendAllRequests_Click" Padding="10,5" Margin="0,0,10,0"/>
-                    <Button Content="Resend All" Click="ResendAllRequests_Click" Padding="10,5" Margin="0,0,10,0"/>
                     <Button Content="Clear All" Click="ClearAllRequests_Click" Padding="10,5"/>
                 </StackPanel>
             </Grid>

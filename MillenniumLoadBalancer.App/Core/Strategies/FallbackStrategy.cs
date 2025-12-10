@@ -1,8 +1,8 @@
 using MillenniumLoadBalancer.App.Core.Interfaces;
 
-namespace MillenniumLoadBalancer.App.Core;
+namespace MillenniumLoadBalancer.App.Core.Strategies;
 
-internal class RandomStrategy : ILoadBalancingStrategy
+internal class FallbackStrategy : ILoadBalancingStrategy
 {
     public IBackendService? SelectBackend(IEnumerable<IBackendService> backends)
     {
@@ -13,7 +13,6 @@ internal class RandomStrategy : ILoadBalancingStrategy
             return null;
         }
 
-        var index = Random.Shared.Next(healthyBackends.Count);
-        return healthyBackends[index];
+        return healthyBackends[0];
     }
 }

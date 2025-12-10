@@ -1,4 +1,4 @@
-using MillenniumLoadBalancer.App.Core;
+using MillenniumLoadBalancer.App.Core.Entities;
 using MillenniumLoadBalancer.App.Core.Interfaces;
 
 namespace MillenniumLoadBalancer.App.Infrastructure.Factories;

@@ -80,18 +80,28 @@ internal class TcpConnectionForwarder : IConnectionForwarder
                 
                 cancellationToken.ThrowIfCancellationRequested();
                 
+                // When one direction completes (one side closed), wait for the other with a short timeout
+                // instead of the full operation timeout. If one side closed, the other should close soon after.
                 var otherTask = completedTask == forwardTask ? reverseTask : forwardTask;
                 
                 try
                 {
-                    await otherTask;
+                    // Wait up to 2 seconds for the other direction to complete
+                    // This is much shorter than the 30-second timeout and prevents hanging
+                    await otherTask.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                 }
+                catch (TimeoutException)
+                {
+                    // One side closed, other side didn't close within 2 seconds - consider connection done
+                    // This is normal when one side closes and the other doesn't immediately respond
+                }
                 catch
                 {
+                    // Ignore other exceptions (stream closed, etc.)
                 }
                 
                 return true;

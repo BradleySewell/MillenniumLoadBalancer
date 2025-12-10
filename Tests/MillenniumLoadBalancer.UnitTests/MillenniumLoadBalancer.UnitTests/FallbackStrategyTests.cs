@@ -1,4 +1,4 @@
-using MillenniumLoadBalancer.App.Core;
+using MillenniumLoadBalancer.App.Core.Strategies;
 using MillenniumLoadBalancer.App.Core.Interfaces;
 using Moq;
 

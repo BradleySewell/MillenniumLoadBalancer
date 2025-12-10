@@ -1,5 +1,7 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using MillenniumLoadBalancer.App.Core.Configuration;
 using MillenniumLoadBalancer.App.Core.Interfaces;
 using MillenniumLoadBalancer.App.Infrastructure;
 
@@ -17,6 +19,8 @@ internal class Program
         };
 
         var serviceProvider = ServiceConfiguration.ConfigureServices();
+        var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+        var visualConsoleService = serviceProvider.GetRequiredService<IVisualConsoleService>();
         var loadBalancerManager = serviceProvider.GetRequiredService<ILoadBalancerManager>();
 
         try
@@ -26,12 +30,20 @@ internal class Program
                 throw new InvalidOperationException("Service provider is null after configuration");
             }
 
+            if (visualConsoleService == null)
+            {
+                throw new InvalidOperationException("Visual console service is null after retrieval from service provider");
+            }
+
             if (loadBalancerManager == null)
             {
                 throw new InvalidOperationException("Load balancer manager is null after retrieval from service provider");
             }
 
+            visualConsoleService.Initialize(); //this shows the header even if visual mode is disabled
+
             loadBalancerManager.Initialize();
+                        
             await loadBalancerManager.StartAllAsync(cts.Token);
         }
         catch (Exception ex)
@@ -42,10 +54,20 @@ internal class Program
             return;
         }
 
-
         try
         {
-            await Task.Delay(Timeout.Infinite, cts.Token);
+            var loadBalancerOptions = configuration.GetSection("LoadBalancer").Get<LoadBalancerOptions>();
+            var enableVisualMode = loadBalancerOptions?.EnableVisualMode ?? false;
+
+            if (enableVisualMode)
+            {
+                await visualConsoleService.RunAsync(cts.Token);
+            }
+            else
+            {
+                // If visual mode is disabled, built in logger will write to console.
+                await Task.Delay(Timeout.Infinite, cts.Token);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -59,6 +81,15 @@ internal class Program
         }
         finally
         {
+            try
+            {
+                visualConsoleService.Stop();
+            }
+            catch (Exception ex)
+            {
+                LogError(serviceProvider, ex, "Error stopping visual console");
+            }
+            
             try
             {
                 await loadBalancerManager.StopAllAsync(cts.Token);

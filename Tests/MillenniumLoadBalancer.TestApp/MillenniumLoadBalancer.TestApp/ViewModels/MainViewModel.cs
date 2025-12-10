@@ -20,6 +20,7 @@ public class MainViewModel : INotifyPropertyChanged
     private int _newBackendResponseDelay = 0;
     private string _newRequestMessage = "";
     private bool _requestEnableTls = false;
+    private int _bulkRequestCount = 10;
 
     public MainViewModel()
     {
@@ -92,6 +93,12 @@ public class MainViewModel : INotifyPropertyChanged
     {
         get => _requestEnableTls;
         set { _requestEnableTls = value; OnPropertyChanged(); }
+    }
+
+    public int BulkRequestCount
+    {
+        get => _bulkRequestCount;
+        set { _bulkRequestCount = value; OnPropertyChanged(); }
     }
 
     public async Task AddBackendAsync()
@@ -191,6 +198,26 @@ public class MainViewModel : INotifyPropertyChanged
         Requests.Add(request);
     }
 
+    public void AddBulkRequests()
+    {
+        if (_bulkRequestCount <= 0)
+            return;
+
+        _traceService.AddTrace($"Adding {_bulkRequestCount} numbered requests to queue");
+        
+        for (int i = 1; i <= _bulkRequestCount; i++)
+        {
+            var request = new RequestViewModel
+            {
+                Message = i.ToString(),
+                Status = RequestStatus.Pending
+            };
+            Requests.Add(request);
+        }
+        
+        _traceService.AddTrace($"Added {_bulkRequestCount} numbered requests (1-{_bulkRequestCount})");
+    }
+
     public async Task SendRequestAsync(string message)
     {
         if (string.IsNullOrWhiteSpace(message))
@@ -221,29 +248,16 @@ public class MainViewModel : INotifyPropertyChanged
 
     public async Task SendAllRequestsAsync()
     {
-        var pendingRequests = Requests
-            .Where(r => !string.IsNullOrWhiteSpace(r.Message) && r.Status == RequestStatus.Pending)
+        var allRequests = Requests
+            .Where(r => !string.IsNullOrWhiteSpace(r.Message))
             .ToList();
 
-        _traceService.AddTrace($"Sending all pending requests ({pendingRequests.Count} requests)");
-        
-        // Send all requests concurrently
-        var tasks = pendingRequests.Select(request => SendExistingRequestAsync(request));
-        await Task.WhenAll(tasks);
-        
-        _traceService.AddTrace($"Finished sending all requests");
-    }
+        if (allRequests.Count == 0)
+            return;
 
-    public async Task ResendAllRequestsAsync()
-    {
-        var requestsToResend = Requests
-            .Where(r => !string.IsNullOrWhiteSpace(r.Message) && r.Status != RequestStatus.Pending)
-            .ToList();
-
-        _traceService.AddTrace($"Resending all requests ({requestsToResend.Count} requests)");
-        
-        // Reset all requests to Pending status
-        foreach (var request in requestsToResend)
+        // Reset all non-pending requests to Pending status (for resending)
+        var requestsToReset = allRequests.Where(r => r.Status != RequestStatus.Pending).ToList();
+        foreach (var request in requestsToReset)
         {
             request.Status = RequestStatus.Pending;
             request.SentTime = null;
@@ -251,11 +265,23 @@ public class MainViewModel : INotifyPropertyChanged
             request.Response = "";
         }
 
+        var pendingCount = allRequests.Count(r => r.Status == RequestStatus.Pending);
+        var resendCount = requestsToReset.Count;
+        
+        if (resendCount > 0)
+        {
+            _traceService.AddTrace($"Sending all requests ({pendingCount} pending, {resendCount} being resent)");
+        }
+        else
+        {
+            _traceService.AddTrace($"Sending all pending requests ({pendingCount} requests)");
+        }
+        
         // Send all requests concurrently
-        var tasks = requestsToResend.Select(request => SendExistingRequestAsync(request));
+        var tasks = allRequests.Select(request => SendExistingRequestAsync(request));
         await Task.WhenAll(tasks);
         
-        _traceService.AddTrace($"Finished resending all requests");
+        _traceService.AddTrace($"Finished sending all requests");
     }
 
     public void ClearAllRequests()

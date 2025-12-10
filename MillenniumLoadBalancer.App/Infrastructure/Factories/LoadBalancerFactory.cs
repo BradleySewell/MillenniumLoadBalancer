@@ -11,6 +11,8 @@ internal class LoadBalancerFactory : ILoadBalancerFactory
     private readonly IConnectionForwarderFactory _forwarderFactory;
     private readonly IBackendServiceFactory _backendServiceFactory;
     private readonly IBackendHealthCheckService _healthCheckService;
+    private readonly IConnectionTracker? _connectionTracker;
+    private readonly IVisualConsoleService? _visualConsoleService;
     private readonly ILogger<LoadBalancer> _logger;
 
     public LoadBalancerFactory(
@@ -18,12 +20,16 @@ internal class LoadBalancerFactory : ILoadBalancerFactory
         IConnectionForwarderFactory forwarderFactory,
         IBackendServiceFactory backendServiceFactory,
         IBackendHealthCheckService healthCheckService,
-        ILogger<LoadBalancer> logger)
+        ILogger<LoadBalancer> logger,
+        IConnectionTracker? connectionTracker = null,
+        IVisualConsoleService? visualConsoleService = null)
     {
         _strategyFactory = strategyFactory;
         _forwarderFactory = forwarderFactory;
         _backendServiceFactory = backendServiceFactory;
         _healthCheckService = healthCheckService;
+        _connectionTracker = connectionTracker;
+        _visualConsoleService = visualConsoleService;
         _logger = logger;
     }
 
@@ -93,7 +99,9 @@ internal class LoadBalancerFactory : ILoadBalancerFactory
             _healthCheckService,
             configuration.RecoveryCheckIntervalSeconds,
             configuration.RecoveryDelaySeconds,
-            _logger);
+            _logger,
+            _connectionTracker,
+            _visualConsoleService);
     }
 }
 

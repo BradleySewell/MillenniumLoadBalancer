@@ -15,6 +15,7 @@ A high-performance, production-ready TCP load balancer built with .NET 10.0. Mil
 - **Automatic Failover**: Unhealthy backends are automatically removed from rotation and re-added when recovered
 - **Multiple Listeners**: Configure multiple load balancer instances with different configurations
 - **Connection Timeouts**: Configurable connection, send, and receive timeouts
+- **Visual Console Mode**: Real-time millennium-style dashboard showing connection statistics, backend health, and system status
 - **Comprehensive Logging**: File-based logging with daily rotation and console output
 - **Docker Support**: Containerized deployment with multi-stage Docker builds
 - **Cross-Platform**: Runs on Windows, Linux, and macOS
@@ -84,6 +85,46 @@ docker run -d \
   millennium-loadbalancer
 ```
 
+## Visual Console Mode
+
+Millennium Load Balancer includes an optional visual console mode that displays a real-time dashboard with millennium-style terminal graphics.
+
+### Visual Mode (Enabled)
+
+When `EnableVisualMode` is set to `true`, the console displays:
+- Real-time connection statistics (accepted, forwarded, failed, active)
+- Per-listener connection counts
+- Backend health status with visual indicators (█ for online, ░ for offline)
+- Per-backend connection statistics
+- System version and timestamp
+- Updates every second
+
+![Visual Mode Screenshot](images/visual-mode.png)
+
+### Non-Visual Mode (Disabled)
+
+When `EnableVisualMode` is set to `false`, the console shows:
+- Simple header with version information
+- Standard console logging output
+- Traditional log-based monitoring
+
+![Non-Visual Mode Screenshot](images/non-visual-mode.png)
+
+### Configuration
+
+To enable or disable visual mode, set the `EnableVisualMode` option in `appsettings.json`:
+
+```json
+{
+  "LoadBalancer": {
+    "EnableVisualMode": true,
+    "Listeners": [...]
+  }
+}
+```
+
+**Note:** When visual mode is enabled, console logging is automatically disabled to keep the dashboard clean. File logging continues to work normally.
+
 ## Configuration
 
 Configuration is done via `appsettings.json`. Here's an example configuration:
@@ -91,6 +132,7 @@ Configuration is done via `appsettings.json`. Here's an example configuration:
 ```json
 {
   "LoadBalancer": {
+    "EnableVisualMode": true,
     "Listeners": [
       {
         "Name": "Main Load Balancer",
@@ -124,6 +166,10 @@ Configuration is done via `appsettings.json`. Here's an example configuration:
 ```
 
 ### Configuration Options
+
+#### Global Configuration
+
+- **EnableVisualMode**: Enable the visual console dashboard (default: `true`). When enabled, displays a real-time millennium-style dashboard. When disabled, shows standard console logging.
 
 #### Listener Configuration
 

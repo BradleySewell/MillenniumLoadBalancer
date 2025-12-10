@@ -1,6 +1,6 @@
 using MillenniumLoadBalancer.App.Core.Interfaces;
 
-namespace MillenniumLoadBalancer.App.Core;
+namespace MillenniumLoadBalancer.App.Core.Entities;
 
 internal class BackendService : IBackendService
 {

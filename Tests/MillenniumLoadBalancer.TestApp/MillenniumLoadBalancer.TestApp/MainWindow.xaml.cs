@@ -47,6 +47,11 @@ namespace MillenniumLoadBalancer.TestApp
             }
         }
 
+        private void AddBulkRequests_Click(object sender, RoutedEventArgs e)
+        {
+            ViewModel.AddBulkRequests();
+        }
+
         private void RemoveRequest_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button button && button.Tag is RequestViewModel request)
@@ -58,11 +63,6 @@ namespace MillenniumLoadBalancer.TestApp
         private async void SendAllRequests_Click(object sender, RoutedEventArgs e)
         {
             await ViewModel.SendAllRequestsAsync();
-        }
-
-        private async void ResendAllRequests_Click(object sender, RoutedEventArgs e)
-        {
-            await ViewModel.ResendAllRequestsAsync();
         }
 
         private void ClearAllRequests_Click(object sender, RoutedEventArgs e)
