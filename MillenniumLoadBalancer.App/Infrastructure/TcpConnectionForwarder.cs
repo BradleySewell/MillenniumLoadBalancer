@@ -19,30 +19,29 @@ internal class TcpConnectionForwarder : IConnectionForwarder
         _receiveTimeoutSeconds = receiveTimeoutSeconds;
     }
 
-    public async Task<bool> ForwardAsync(Stream clientStream, IBackendService backend, CancellationToken cancellationToken = default)
+    public async Task<bool> ForwardAsync(
+        Stream clientStream,
+        IBackendService backend,
+        CancellationToken cancellationToken = default)
     {
-        // Note: This forwarder uses TCP passthrough, so it forwards all bytes transparently.
-        // If EnableTls is true, the TLS handshake happens directly between client and backend.
-        // The backend.EnableTls and backend.ValidateCertificate settings are only used by
-        // the health check service, not by this forwarder.
-        
         cancellationToken.ThrowIfCancellationRequested();
-        
-        using var backendClient = new System.Net.Sockets.TcpClient();
-        
+
+        using var backendClient = new TcpClient();
+
         using var connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         connectionCts.CancelAfter(TimeSpan.FromSeconds(_connectionTimeoutSeconds));
-        
+
         try
         {
-            await backendClient.ConnectAsync(backend.Address, backend.Port, connectionCts.Token);
+            await backendClient
+                .ConnectAsync(backend.Address, backend.Port, connectionCts.Token)
+                .ConfigureAwait(false);
         }
-
         catch
         {
             return false;
         }
-        
+
         NetworkStream backendStream;
         try
         {
@@ -52,58 +51,44 @@ internal class TcpConnectionForwarder : IConnectionForwarder
         {
             return false;
         }
-        
+
         using (backendStream)
         {
             backendStream.WriteTimeout = _sendTimeoutSeconds * 1000;
             backendStream.ReadTimeout = _receiveTimeoutSeconds * 1000;
-            
+
             using var operationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            operationCts.CancelAfter(TimeSpan.FromSeconds(Math.Max(_sendTimeoutSeconds, _receiveTimeoutSeconds)));
-            
+            operationCts.CancelAfter(
+                TimeSpan.FromSeconds(Math.Max(_sendTimeoutSeconds, _receiveTimeoutSeconds)));
+
             try
             {
                 var forwardTask = clientStream.CopyToAsync(backendStream, operationCts.Token);
                 var reverseTask = backendStream.CopyToAsync(clientStream, operationCts.Token);
 
-                var completedTask = await Task.WhenAny(forwardTask, reverseTask);
-                
-                try
-                {
-                    await completedTask;
-                }
-                catch (OperationCanceledException)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    throw;
-                }
-                
+                var completedTask = await Task
+                    .WhenAny(forwardTask, reverseTask)
+                    .ConfigureAwait(false);
+
                 cancellationToken.ThrowIfCancellationRequested();
-                
-                // When one direction completes (one side closed), wait for the other with a short timeout
-                // instead of the full operation timeout. If one side closed, the other should close soon after.
-                var otherTask = completedTask == forwardTask ? reverseTask : forwardTask;
-                
+
+                // Stop the other direction immediately (no 2s delay)
+                operationCts.Cancel();
+
                 try
                 {
-                    // Wait up to 2 seconds for the other direction to complete
-                    // This is much shorter than the 30-second timeout and prevents hanging
-                    await otherTask.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken);
+                    await Task
+                        .WhenAll(forwardTask, reverseTask)
+                        .ConfigureAwait(false);
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    // Expected due to operationCts.Cancel()
                 }
-                catch (TimeoutException)
-                {
-                    // One side closed, other side didn't close within 2 seconds - consider connection done
-                    // This is normal when one side closes and the other doesn't immediately respond
-                }
-                catch
-                {
-                    // Ignore other exceptions (stream closed, etc.)
-                }
-                
+
+                // Ensure the first-completed task didn't fault
+                await completedTask.ConfigureAwait(false);
+
                 return true;
             }
             catch (OperationCanceledException)
@@ -113,13 +98,14 @@ internal class TcpConnectionForwarder : IConnectionForwarder
             }
             catch (IOException ex)
             {
-                throw new IOException($"Network error during data transfer to/from {backend.Address}:{backend.Port}", ex);
+                throw new IOException(
+                    $"Network error during data transfer to/from {backend.Address}:{backend.Port}", ex);
             }
-            catch (Exception ex) when (!(ex is IOException))
+            catch (Exception ex) when (ex is not IOException)
             {
-                throw new IOException($"Unexpected error during data transfer to/from {backend.Address}:{backend.Port}", ex);
+                throw new IOException(
+                    $"Unexpected error during data transfer to/from {backend.Address}:{backend.Port}", ex);
             }
         }
     }
 }
-
